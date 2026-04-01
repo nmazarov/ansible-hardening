@@ -1,0 +1,60 @@
+---
+- name: Linux Server Security Hardening
+  hosts: targets
+  become: yes
+  vars:
+    ssh_port: 2222  # Меняем стандартный порт SSH
+    allow_users: "nikita" # Кого пускать по SSH
+
+  tasks:
+    - name: 1. Update all packages (Apt)
+      apt:
+        update_cache: yes
+        upgrade: dist
+      when: ansible_os_family == "Debian"
+
+    - name: 2. Install essential security tools
+      apt:
+        name:
+          - ufw
+          - fail2ban
+          - unattended-upgrades
+          - logwatch
+        state: present
+
+    - name: 3. Configure SSH Hardening
+      lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: "{{ item.regexp }}"
+        line: "{{ item.line }}"
+        state: present
+      loop:
+        - { regexp: '^#?Port', line: 'Port {{ ssh_port }}' }
+        - { regexp: '^#?PermitRootLogin', line: 'PermitRootLogin no' }
+        - { regexp: '^#?PasswordAuthentication', line: 'PasswordAuthentication no' }
+        - { regexp: '^#?PubkeyAuthentication', line: 'PubkeyAuthentication yes' }
+      notify: restart_ssh
+
+    - name: 4. Setup UFW Firewall
+      ufw:
+        rule: allow
+        port: "{{ ssh_port }}"
+        proto: tcp
+      
+    - name: 5. Deny all other incoming traffic
+      ufw:
+        state: enabled
+        policy: deny
+        direction: incoming
+
+    - name: 6. Enable Fail2Ban
+      service:
+        name: fail2ban
+        state: started
+        enabled: yes
+
+  handlers:
+    - name: restart_ssh
+      service:
+        name: ssh
+        state: restarted
